@@ -19,18 +19,49 @@
         norms.some((ex) => normalise(name).includes(ex));
 
       /**
+       * Minify a payload for the webview URL.
+       * Uses short keys and drops fields the webview doesn't need (lat, lon,
+       * exclusions) to keep the URL within GitHub Pages length limits.
+       */
+      function minifyPayload(payload) {
+        const mini = {
+          m: payload.mode,
+          r: payload.radiusMiles,
+          p: (payload.properties || []).map((prop) => {
+            const o = { t: prop.title, g: prop.region, d: prop.distance };
+            if (prop.routeProgress != null) o.rp = prop.routeProgress;
+            if (prop.extract) o.e = prop.extract;
+            if (prop.thumbnail) o.i = prop.thumbnail;
+            if (prop.wikiUrl) o.w = prop.wikiUrl;
+            if (prop.ntUrl) o.n = prop.ntUrl;
+            return o;
+          }),
+        };
+        if (payload.centreLabel) mini.cl = payload.centreLabel;
+        if (payload.waypoints) mini.wp = payload.waypoints;
+        if (payload.routeMeta) {
+          mini.rm = {
+            d: payload.routeMeta.distanceMiles,
+            t: payload.routeMeta.durationMins,
+          };
+        }
+        return mini;
+      }
+
+      /**
        * Build a success response for the Gallery app with an inline webview.
        * @param {string} text - Summary text displayed in chat.
-       * @param {object} payload - The data object URL-encoded into ?data= for
-       *   the webview. Shape varies by mode — see data contract below.
+       * @param {object} payload - The data object to pass to the webview.
+       *   Uses a URL hash fragment instead of query params to avoid
+       *   server-side URL length limits on GitHub Pages.
        */
       function buildResponse(text, payload) {
         return JSON.stringify({
           result: text,
           webview: {
             url:
-              "webview.html?data=" +
-              encodeURIComponent(JSON.stringify(payload)),
+              "webview.html#" +
+              encodeURIComponent(JSON.stringify(minifyPayload(payload))),
             aspectRatio: 0.72,
           },
         });
@@ -44,32 +75,26 @@
       /*
        * ── Webview data contract ────────────────────────────────────────────────────
        *
-       * The payload passed via buildResponse is URL-encoded into ?data= for
-       * assets/webview.html. Its shape is:
+       * The payload is minified and passed via a URL hash fragment (#) to
+       * assets/webview.html. The hash avoids server-side URL length limits on
+       * GitHub Pages. Minified shape (short keys, no lat/lon/exclusions):
        *
        * {
-       *   mode:        "radius" | "route"
-       *   radiusMiles: number
-       *   exclusions:  string[]
-       *   properties:  Array<{
-       *     title:          string
-       *     region:         string
-       *     lat:            number
-       *     lon:            number
-       *     distance:       number          // miles from centre or route
-       *     routeProgress?: number          // 0–1, route mode only
-       *     extract?:       string          // Wikipedia summary (truncated)
-       *     thumbnail?:     string | null   // Wikipedia thumbnail URL
-       *     wikiUrl?:       string | null
-       *     ntUrl?:         string | null   // nationaltrust.org.uk page
+       *   m:   "radius" | "route"           // mode
+       *   r:   number                       // radiusMiles
+       *   p:   Array<{                      // properties
+       *     t:   string                     // title
+       *     g:   string                     // region
+       *     d:   number                     // distance (miles)
+       *     rp?: number                     // routeProgress 0–1
+       *     e?:  string                     // extract (Wikipedia)
+       *     i?:  string                     // thumbnail URL
+       *     w?:  string                     // wikiUrl
+       *     n?:  string                     // ntUrl
        *   }>
-       *
-       *   // Radius mode only:
-       *   centreLabel:  string              // geocoded display name
-       *
-       *   // Route mode only:
-       *   waypoints:    string[]            // geocoded waypoint labels
-       *   routeMeta:    { distanceMiles: number, durationMins: number } | null
+       *   cl?: string                       // centreLabel (radius mode)
+       *   wp?: string[]                     // waypoints (route mode)
+       *   rm?: { d: number, t: number }     // routeMeta: distanceMiles, durationMins
        * }
        */
 
