@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+  <head></head>
+  <body>
+    <script>
+      const NT_FEATURE_LAYER =
+        "https://services-eu1.arcgis.com/NPIbx47lsIiu2pqz/arcgis/rest/services" +
+        "/National_Trust_Visitor_Properties_/FeatureServer/0";
+
+      const DEFAULT_RADIUS_MILES = 20;
+      const DEFAULT_MAX_RESULTS = 10;
+      const MAX_RESULTS_CAP = 50;
+      const MAX_EXTRACT_LENGTH = 240;
+
+      // ── Utilities ─────────────────────────────────────────────────────────────────
+
+      const normalise = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const isExcluded = (name, norms) =>
+        norms.some((ex) => normalise(name).includes(ex));
+
+      /**
+       * Build a success response for the Gallery app with an inline webview.
+       * @param {string} text - Summary text displayed in chat.
+       * @param {object} payload - The data object URL-encoded into ?data= for
+       *   the webview. Shape varies by mode — see data contract below.
+       */
+      function buildResponse(text, payload) {
+        return JSON.stringify({
+          result: text,
+          webview: {
+            url:
+              "webview.html?data=" +
+              encodeURIComponent(JSON.stringify(payload)),
+            aspectRatio: 0.72,
+          },
+        });
+      }
+
+      /** Build an error response for the Gallery app. */
+      function buildError(msg) {
+        return JSON.stringify({ error: msg });
+      }
+
+      /*
+       * ── Webview data contract ────────────────────────────────────────────────────
+       *
+       * The payload passed via buildResponse is URL-encoded into ?data= for
+       * assets/webview.html. Its shape is:
+       *
+       * {
+       *   mode:        "radius" | "route"
+       *   radiusMiles: number
+       *   exclusions:  string[]
+       *   properties:  Array<{
+       *     title:          string
+       *     region:         string
+       *     lat:            number
+       *     lon:            number
+       *     distance:       number          // miles from centre or route
+       *     routeProgress?: number          // 0–1, route mode only
+       *     extract?:       string          // Wikipedia summary (truncated)
+       *     thumbnail?:     string | null   // Wikipedia thumbnail URL
+       *     wikiUrl?:       string | null
+       *     ntUrl?:         string | null   // nationaltrust.org.uk page
+       *   }>
+       *
+       *   // Radius mode only:
+       *   centreLabel:  string              // geocoded display name
+       *
+       *   // Route mode only:
+       *   waypoints:    string[]            // geocoded waypoint labels
+       *   routeMeta:    { distanceMiles: number, durationMins: number } | null
+       * }
+       */
+
+      // ── Geospatial utilities ──────────────────────────────────────────────────────
+
+      /**
+       * Great-circle distance between two points using the Haversine formula.
+       * @param {number} lat1 - Latitude of point 1 in degrees.
+       * @param {number} lon1 - Longitude of point 1 in degrees.
+       * @param {number} lat2 - Latitude of point 2 in degrees.
+       * @param {number} lon2 - Longitude of point 2 in degrees.
+       * @returns {number} Distance in miles.
+       */
+      function haversine(lat1, lon1, lat2, lon2) {
+        const R = 3958.8,
+          r = (d) => (d * Math.PI) / 180;
+        const dLat = r(lat2 - lat1),
+          dLon = r(lon2 - lon1);
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      }
+
+      /**
+       * Perpendicular distance from a point to a line segment, using a local
+       * flat-Earth Cartesian projection (accurate for short distances).
+       * @param {number} pLat - Point latitude in degrees.
+       * @param {number} pLon - Point longitude in degrees.
+       * @param {number} aLat - Segment start latitude.
+       * @param {number} aLon - Segment start longitude.
+       * @param {number} bLat - Segment end latitude.
+       * @param {number} bLon - Segment end longitude.
+       * @returns {{ dist: number, t: number }} dist in miles; t is 0–1
+       *   projection parameter along the segment.
+       */
+      function distToSegment(pLat, pLon, aLat, aLon, bLat, bLon) {
+        const cosLat = Math.cos((pLat * Math.PI) / 180);
+        const px = (pLon - aLon) * cosLat,
+          py = pLat - aLat;
+        const dx = (bLon - aLon) * cosLat,
+          dy = bLat - aLat;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0)
+          return { dist: haversine(pLat, pLon, aLat, aLon), t: 0 };
+        const t = Math.max(0, Math.min(1, (px * dx + py * dy) / lenSq));
+        return {
+          dist: haversine(
+            pLat,
+            pLon,
+            aLat + t * (bLat - aLat),
+            aLon + t * (bLon - aLon),
+          ),
+          t,
+        };
+      }
+
+      /**
+       * Find the nearest point on a route polyline and the fractional progress
+       * along the route (0 = start, 1 = end).
+       * @param {number} propLat - Property latitude in degrees.
+       * @param {number} propLon - Property longitude in degrees.
+       * @param {Array<[number, number]>} routeCoords - GeoJSON coordinates,
+       *   each [lon, lat] (note: longitude first, opposite of param order).
+       * @returns {{ distMiles: number, routeProgress: number }}
+       */
+      function analyzeRoutePosition(propLat, propLon, routeCoords) {
+        const segLens = [];
+        let totalLen = 0;
+        for (let i = 0; i < routeCoords.length - 1; i++) {
+          const l = haversine(
+            routeCoords[i][1],
+            routeCoords[i][0],
+            routeCoords[i + 1][1],
+            routeCoords[i + 1][0],
+          );
+          segLens.push(l);
+          totalLen += l;
+        }
+        let minDist = Infinity,
+          bestProg = 0,
+          cumLen = 0;
+        for (let i = 0; i < routeCoords.length - 1; i++) {
+          const { dist, t } = distToSegment(
+            propLat,
+            propLon,
+            routeCoords[i][1],
+            routeCoords[i][0],
+            routeCoords[i + 1][1],
+            routeCoords[i + 1][0],
+          );
+          if (dist < minDist) {
+            minDist = dist;
+            bestProg = totalLen > 0 ? (cumLen + t * segLens[i]) / totalLen : 0;
+          }
+          cumLen += segLens[i];
+        }
+        return {
+          distMiles: Math.round(minDist * 10) / 10,
+          routeProgress: bestProg,
+        };
+      }
+
+      // ── Geocoding ─────────────────────────────────────────────────────────────────
+
+      async function geocode(location) {
+        const res = await fetch(
+          "https://nominatim.openstreetmap.org/search" +
+            "?q=" +
+            encodeURIComponent(location) +
+            "&format=json&limit=1&countrycodes=gb",
+          { headers: { "Accept-Language": "en", "User-Agent": "NTSkill/1.0" } },
+        );
+        const data = await res.json();
+        if (!data?.length)
+          throw new Error(
+            `Couldn't find "${location}". Try a town or postcode.`,
+          );
+        return {
+          lat: parseFloat(data[0].lat),
+          lon: parseFloat(data[0].lon),
+          label: data[0].display_name.split(",").slice(0, 2).join(",").trim(),
+        };
+      }
+
+      // ── Wikipedia enrichment ──────────────────────────────────────────────────────
+
+      function wikiActionUrl(title) {
+        return (
+          "https://en.wikipedia.org/w/api.php?action=query" +
+          "&titles=" +
+          encodeURIComponent(title) +
+          "&prop=extracts%7Cpageimages%7Cextlinks" +
+          "&exintro=1&explaintext=1&piprop=thumbnail&pithumbsize=500&ellimit=50" +
+          "&format=json&origin=*"
+        );
+      }
+
+      function parseWikiPage(data) {
+        const pages = data?.query?.pages;
+        if (!pages) return null;
+        const page = Object.values(pages)[0];
+        if (!page || page.missing !== undefined || !page.extract?.trim())
+          return null;
+        const ntUrl =
+          (page.extlinks || [])
+            .map((e) => e["*"])
+            .find((url) => {
+              if (!url?.includes("nationaltrust.org.uk")) return false;
+              const path = url.replace(/^https?:\/\/[^/]+/, "");
+              return (
+                path.length > 1 &&
+                !/^\/(membership|shop|donate|support|holidays)/.test(path)
+              );
+            }) ?? null;
+        const extract = page.extract.trim();
+        return {
+          extract:
+            extract.length > MAX_EXTRACT_LENGTH
+              ? `${extract.slice(0, MAX_EXTRACT_LENGTH - 3)}…`
+              : extract,
+          thumbnail: page.thumbnail?.source ?? null,
+          wikiUrl: page.title
+            ? "https://en.wikipedia.org/wiki/" +
+              encodeURIComponent(page.title.replace(/ /g, "_"))
+            : null,
+          ntUrl,
+        };
+      }
+
+      async function fetchWikiData(name) {
+        try {
+          const r1 = await fetch(wikiActionUrl(name));
+          const parsed = parseWikiPage(await r1.json());
+          if (parsed) return parsed;
+          // Search fallback
+          const sr = await fetch(
+            "https://en.wikipedia.org/w/api.php?action=query&list=search" +
+              "&srsearch=" +
+              encodeURIComponent(`${name} National Trust`) +
+              "&srlimit=1&format=json&origin=*",
+          );
+          const hit = (await sr.json())?.query?.search?.[0];
+          if (!hit) return null;
+          const r2 = await fetch(wikiActionUrl(hit.title));
+          return parseWikiPage(await r2.json());
+        } catch {
+          return null;
+        }
+      }
+
+      // ── ArcGIS helpers ────────────────────────────────────────────────────────────
+
+      async function queryArcGIS(params) {
+        const res = await fetch(
+          `${NT_FEATURE_LAYER}/query?${new URLSearchParams(params)}`,
+        );
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        return data.features || [];
+      }
+
+      function applyExclusionsAndEnrich(
+        features,
+        normExclusions,
+        centreOrRoute,
+        mode,
+      ) {
+        return features
+          .filter(
+            (f) =>
+              !isExcluded(f.attributes.Visitor_Property_Name, normExclusions),
+          )
+          .map((f) => {
+            const base = {
+              title: f.attributes.Visitor_Property_Name,
+              region: f.attributes.Region,
+              lat: f.geometry.y,
+              lon: f.geometry.x,
+            };
+            if (mode === "radius") {
+              const { lat, lon } = centreOrRoute;
+              return {
+                ...base,
+                distance:
+                  Math.round(haversine(lat, lon, base.lat, base.lon) * 10) / 10,
+              };
+            } else {
+              const { distMiles, routeProgress } = analyzeRoutePosition(
+                base.lat,
+                base.lon,
+                centreOrRoute,
+              );
+              return { ...base, distance: distMiles, routeProgress };
+            }
+          });
+      }
+
+      // ── Route geometry ────────────────────────────────────────────────────────────
+
+      /**
+       * Fetch a driving route from OSRM. Falls back to straight-line segments
+       * between geocoded waypoints if OSRM is unavailable.
+       * @param {string} coordStr - Semicolon-separated "lon,lat" pairs for OSRM.
+       * @param {Array<{lat: number, lon: number}>} geoPoints - Geocoded waypoints.
+       * @returns {Promise<{ routeCoords: Array<[number,number]>, routeMeta: {distanceMiles: number, durationMins: number} | null }>}
+       */
+      async function fetchRouteGeometry(coordStr, geoPoints) {
+        try {
+          const osrmRes = await fetch(
+            `https://router.project-osrm.org/route/v1/driving/${coordStr}` +
+              "?geometries=geojson&overview=full&steps=false",
+            { headers: { "User-Agent": "NTSkill/1.0" } },
+          );
+          const osrmData = await osrmRes.json();
+          if (osrmData.code === "Ok" && osrmData.routes?.[0]) {
+            return {
+              routeCoords: osrmData.routes[0].geometry.coordinates,
+              routeMeta: {
+                distanceMiles: Math.round(
+                  osrmData.routes[0].distance * 0.000621371,
+                ),
+                durationMins: Math.round(osrmData.routes[0].duration / 60),
+              },
+            };
+          }
+        } catch {
+          /* fall through to straight-line */
+        }
+
+        // Straight-line fallback: connect geocoded waypoints
+        return {
+          routeCoords: geoPoints.map((p) => [p.lon, p.lat]),
+          routeMeta: null,
+        };
+      }
+
+      // ── Radius search ─────────────────────────────────────────────────────────────
+
+      async function radiusSearch(
+        location,
+        radiusMiles,
+        normExclusions,
+        exclusions,
+        maxResults,
+      ) {
+        const centre = await geocode(location);
+        const features = await queryArcGIS({
+          geometry: `${centre.lon},${centre.lat}`,
+          geometryType: "esriGeometryPoint",
+          spatialRel: "esriSpatialRelIntersects",
+          distance: String(radiusMiles),
+          units: "esriSRUnit_StatuteMile",
+          inSR: "4326",
+          outSR: "4326",
+          outFields: "Visitor_Property_Name,Region",
+          returnGeometry: "true",
+          resultRecordCount: "50",
+          f: "json",
+        });
+
+        if (!features.length)
+          return buildError(
+            `No NT properties within ${radiusMiles} miles of "${location}".`,
+          );
+
+        const candidates = applyExclusionsAndEnrich(
+          features,
+          normExclusions,
+          centre,
+          "radius",
+        )
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, maxResults);
+
+        if (!candidates.length)
+          return buildError(
+            "All nearby properties already visited. Try a larger radius.",
+          );
+
+        const wikiData = await Promise.all(
+          candidates.map((p) => fetchWikiData(p.title)),
+        );
+        const properties = candidates.map((p, i) => ({
+          ...p,
+          ...(wikiData[i] || {}),
+        }));
+        const exNote = normExclusions.length
+          ? ` (${exclusions.length} visited excluded)`
+          : "";
+
+        return buildResponse(
+          `Found ${properties.length} NT ${properties.length === 1 ? "property" : "properties"} within ${radiusMiles} miles of ${location}${exNote}.`,
+          {
+            mode: "radius",
+            centreLabel: centre.label,
+            radiusMiles,
+            exclusions,
+            properties,
+          },
+        );
+      }
+
+      // ── Route / multi-stop search ─────────────────────────────────────────────────
+
+      async function routeSearch(
+        waypoints,
+        radiusMiles,
+        normExclusions,
+        exclusions,
+        maxResults,
+      ) {
+        // 1. Geocode all waypoints in parallel
+        const geoPoints = await Promise.all(waypoints.map(geocode));
+        const coordStr = geoPoints.map((p) => `${p.lon},${p.lat}`).join(";");
+
+        // 2. Fetch route geometry (OSRM with straight-line fallback)
+        const { routeCoords, routeMeta } = await fetchRouteGeometry(
+          coordStr,
+          geoPoints,
+        );
+
+        // 3. Compute dynamic result cap based on route distance
+        let routeDistance;
+        if (routeMeta) {
+          routeDistance = routeMeta.distanceMiles;
+        } else {
+          // OSRM unavailable — sum straight-line distances between waypoints
+          routeDistance = 0;
+          for (let i = 0; i < geoPoints.length - 1; i++) {
+            routeDistance += haversine(
+              geoPoints[i].lat,
+              geoPoints[i].lon,
+              geoPoints[i + 1].lat,
+              geoPoints[i + 1].lon,
+            );
+          }
+          routeDistance = Math.round(routeDistance);
+        }
+        const scaledCap = Math.min(
+          DEFAULT_MAX_RESULTS + 2 * Math.floor(routeDistance / 25),
+          MAX_RESULTS_CAP,
+        );
+        const effectiveCap = maxResults ?? scaledCap;
+
+        // 4. Bounding box of route with corridor padding
+        const avgLat =
+          geoPoints.reduce((s, p) => s + p.lat, 0) / geoPoints.length;
+        const padLat = radiusMiles / 69;
+        const padLon = radiusMiles / (69 * Math.cos((avgLat * Math.PI) / 180));
+        const lons = routeCoords.map((c) => c[0]);
+        const lats = routeCoords.map((c) => c[1]);
+
+        // 5. ArcGIS envelope query
+        const features = await queryArcGIS({
+          geometry: `${Math.min(...lons) - padLon},${Math.min(...lats) - padLat},${Math.max(...lons) + padLon},${Math.max(...lats) + padLat}`,
+          geometryType: "esriGeometryEnvelope",
+          spatialRel: "esriSpatialRelIntersects",
+          inSR: "4326",
+          outSR: "4326",
+          outFields: "Visitor_Property_Name,Region",
+          returnGeometry: "true",
+          resultRecordCount: "200",
+          f: "json",
+        });
+
+        if (!features.length)
+          return buildError(
+            `No NT properties found within ${radiusMiles} miles of that route.`,
+          );
+
+        // 6. Filter by true distance to route polyline, apply exclusions, sort
+        const candidates = applyExclusionsAndEnrich(
+          features,
+          normExclusions,
+          routeCoords,
+          "route",
+        )
+          .filter((p) => p.distance <= radiusMiles)
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, effectiveCap);
+
+        if (!candidates.length)
+          return buildError(
+            "All properties near this route have been excluded.",
+          );
+
+        // 7. Wikipedia enrichment in parallel
+        const wikiData = await Promise.all(
+          candidates.map((p) => fetchWikiData(p.title)),
+        );
+        const properties = candidates.map((p, i) => ({
+          ...p,
+          ...(wikiData[i] || {}),
+        }));
+
+        const waypointLabels = geoPoints.map((p) =>
+          p.label.split(",")[0].trim(),
+        );
+        const exNote = normExclusions.length
+          ? ` (${exclusions.length} excluded)`
+          : "";
+        const routeSummary = routeMeta
+          ? ` Route is ~${routeMeta.distanceMiles} miles (${routeMeta.durationMins} mins driving).`
+          : "";
+
+        return buildResponse(
+          `Found ${properties.length} NT ${properties.length === 1 ? "property" : "properties"} within ${radiusMiles} miles of your route${exNote}.${routeSummary}`,
+          {
+            mode: "route",
+            waypoints: waypointLabels,
+            radiusMiles,
+            exclusions,
+            routeMeta,
+            properties,
+          },
+        );
+      }
+
+      // ── Entry point ───────────────────────────────────────────────────────────────
+
+      window.ai_edge_gallery_get_result = async (data) => {
+        try {
+          const {
+            location,
+            waypoints,
+            radiusMiles = DEFAULT_RADIUS_MILES,
+            exclusions = [],
+            maxResults: rawMaxResults,
+          } = JSON.parse(data);
+
+          const normExclusions = exclusions
+            .map(normalise)
+            .filter((s) => s.length >= 3);
+
+          // Validate and cap maxResults
+          const maxResults =
+            typeof rawMaxResults === "number" && rawMaxResults > 0
+              ? Math.min(rawMaxResults, MAX_RESULTS_CAP)
+              : null;
+
+          if (waypoints?.length >= 2)
+            return await routeSearch(
+              waypoints,
+              radiusMiles,
+              normExclusions,
+              exclusions,
+              maxResults,
+            );
+          if (location)
+            return await radiusSearch(
+              location,
+              radiusMiles,
+              normExclusions,
+              exclusions,
+              maxResults ?? DEFAULT_MAX_RESULTS,
+            );
+
+          return buildError(
+            "Provide either a location or at least two waypoints.",
+          );
+        } catch (e) {
+          return buildError(e.message);
+        }
+      };
+    </script>
+  </body>
+</html>

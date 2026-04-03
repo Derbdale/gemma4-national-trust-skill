@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=Lora:ital,wght@0,400;0,500;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      :root {
+        --green: #004c3f;
+        --mid: #006651;
+        --light: #e4efec;
+        --cream: #faf6ef;
+        --ink: #1c1c1a;
+        --muted: #5a5a52;
+        --gold: #c49a3c;
+        --r: 10px;
+      }
+      html,
+      body {
+        height: 100%;
+        background: var(--cream);
+        font-family: "Lora", Georgia, serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      .shell {
+        display: flex;
+        flex-direction: column;
+        min-height: 100%;
+        max-width: 480px;
+        margin: 0 auto;
+        padding-bottom: 16px;
+      }
+
+      /* Header */
+      header {
+        background: var(--green);
+        padding: 14px 16px 12px;
+        display: flex;
+        align-items: center;
+        gap: 11px;
+      }
+      .oak {
+        flex-shrink: 0;
+        width: 34px;
+        height: 34px;
+      }
+      header h1 {
+        font-family: "Playfair Display", serif;
+        font-size: 15px;
+        font-weight: 700;
+        color: #fff;
+        line-height: 1.2;
+      }
+      header .sub {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.6);
+        font-style: italic;
+        margin-top: 2px;
+      }
+      .gold-bar {
+        height: 3px;
+        background: linear-gradient(90deg, var(--gold), #e8c068, var(--gold));
+      }
+      .summary {
+        padding: 9px 16px 4px;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      /* Route info banner */
+      .route-banner {
+        margin: 6px 12px 0;
+        background: var(--green);
+        color: #fff;
+        border-radius: var(--r);
+        padding: 8px 12px;
+        font-size: 12px;
+        font-style: italic;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .route-banner .waypoints {
+        font-family: "Playfair Display", serif;
+        font-style: normal;
+        font-size: 13px;
+        font-weight: 700;
+        flex: 1;
+      }
+      .route-banner .meta {
+        font-size: 11px;
+        opacity: 0.75;
+        white-space: nowrap;
+      }
+
+      /* Toolbar: sort + surprise */
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px 4px;
+        gap: 6px;
+      }
+      .sort-group {
+        display: flex;
+        gap: 4px;
+      }
+      .sort-btn {
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 20px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-family: "Lora", serif;
+        color: var(--muted);
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .sort-btn.active {
+        background: var(--green);
+        color: #fff;
+        border-color: var(--green);
+      }
+      .surprise-btn {
+        background: var(--gold);
+        color: #fff;
+        border: none;
+        border-radius: 20px;
+        padding: 5px 12px;
+        font-size: 12px;
+        font-family: "Lora", serif;
+        cursor: pointer;
+        white-space: nowrap;
+        font-weight: 500;
+        transition: opacity 0.15s;
+      }
+      .surprise-btn:active {
+        opacity: 0.75;
+      }
+
+      /* Cards */
+      .cards {
+        padding: 4px 12px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .card {
+        background: #fff;
+        border-radius: var(--r);
+        overflow: hidden;
+        box-shadow:
+          0 1px 4px rgba(0, 0, 0, 0.07),
+          0 0 0 1px rgba(0, 76, 63, 0.05);
+        animation: rise 0.35s ease both;
+        transition:
+          box-shadow 0.2s,
+          border 0.2s;
+      }
+      .card:nth-child(1) {
+        animation-delay: 0.04s;
+      }
+      .card:nth-child(2) {
+        animation-delay: 0.09s;
+      }
+      .card:nth-child(3) {
+        animation-delay: 0.14s;
+      }
+      .card:nth-child(4) {
+        animation-delay: 0.19s;
+      }
+      .card:nth-child(5) {
+        animation-delay: 0.24s;
+      }
+      .card:nth-child(6) {
+        animation-delay: 0.29s;
+      }
+      .card:nth-child(7) {
+        animation-delay: 0.34s;
+      }
+      .card:nth-child(8) {
+        animation-delay: 0.39s;
+      }
+      .card:nth-child(9) {
+        animation-delay: 0.44s;
+      }
+      .card:nth-child(10) {
+        animation-delay: 0.49s;
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* Surprise highlight */
+      .card.surprised {
+        box-shadow:
+          0 0 0 2px var(--gold),
+          0 4px 16px rgba(196, 154, 60, 0.35);
+      }
+      @keyframes gold-pulse {
+        0% {
+          box-shadow:
+            0 0 0 2px var(--gold),
+            0 0 0 6px rgba(196, 154, 60, 0.4);
+        }
+        50% {
+          box-shadow:
+            0 0 0 2px var(--gold),
+            0 0 0 12px rgba(196, 154, 60, 0);
+        }
+        100% {
+          box-shadow:
+            0 0 0 2px var(--gold),
+            0 0 0 6px rgba(196, 154, 60, 0.4);
+        }
+      }
+      .card.surprised {
+        animation: gold-pulse 1.2s ease-in-out infinite;
+      }
+
+      /* Card internals */
+      .card-img {
+        width: 100%;
+        height: 130px;
+        object-fit: cover;
+        display: block;
+      }
+      .card-img-placeholder {
+        width: 100%;
+        height: 80px;
+        background: linear-gradient(135deg, var(--green) 0%, var(--mid) 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .card-img-placeholder svg {
+        width: 36px;
+        height: 36px;
+        opacity: 0.2;
+      }
+      .card-body {
+        padding: 11px 13px 12px;
+      }
+      .card-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 5px;
+      }
+      .card-title {
+        font-family: "Playfair Display", serif;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--green);
+        line-height: 1.3;
+        flex: 1;
+      }
+      .badges {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 3px;
+        flex-shrink: 0;
+      }
+      .badge {
+        background: var(--light);
+        color: var(--mid);
+        font-size: 10px;
+        font-weight: 500;
+        padding: 2px 7px;
+        border-radius: 20px;
+        white-space: nowrap;
+      }
+      .badge.progress {
+        background: #f0ebe0;
+        color: #8a7040;
+      }
+      .card-extract {
+        font-size: 12px;
+        line-height: 1.65;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .card-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .region-tag {
+        font-size: 11px;
+        color: var(--muted);
+        font-style: italic;
+      }
+      .links {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .card-link {
+        font-size: 11px;
+        color: var(--mid);
+        font-style: italic;
+        text-decoration: none;
+        border-bottom: 1px solid var(--gold);
+        padding-bottom: 1px;
+        white-space: nowrap;
+      }
+      .wiki-link {
+        color: #777;
+        border-color: #ccc;
+      }
+
+      /* Empty / error */
+      .empty {
+        margin: 40px 16px;
+        text-align: center;
+        color: var(--muted);
+        font-style: italic;
+      }
+      .empty .icon {
+        font-size: 36px;
+        margin-bottom: 10px;
+      }
+
+      footer {
+        margin-top: 14px;
+        text-align: center;
+        font-size: 10px;
+        color: #bbb;
+        font-style: italic;
+        padding: 0 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <svg
+          class="oak"
+          viewBox="0 0 100 100"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          role="img"
+        >
+          <title>Oak leaf</title>
+          <path
+            d="M50 88 C50 88 48 82 44 76 C40 70 34 66 30 60 C26 54 22 48 20 42
+               C18 36 18 30 22 25 C26 20 32 18 36 20 C38 21 40 23 42 22
+               C43 18 45 14 50 12 C55 14 57 18 58 22 C60 23 62 21 64 20
+               C68 18 74 20 78 25 C82 30 82 36 80 42 C78 48 74 54 70 60
+               C66 66 60 70 56 76 C52 82 50 88 50 88Z"
+            fill="white"
+            opacity=".85"
+          />
+          <line x1="50" y1="86" x2="50" y2="38" stroke="#004C3F" stroke-width="2" stroke-linecap="round" />
+          <line x1="50" y1="68" x2="40" y2="56" stroke="#004C3F" stroke-width="1.5" stroke-linecap="round" />
+          <line x1="50" y1="56" x2="60" y2="46" stroke="#004C3F" stroke-width="1.5" stroke-linecap="round" />
+          <line x1="50" y1="62" x2="42" y2="50" stroke="#004C3F" stroke-width="1.2" stroke-linecap="round" opacity=".5" />
+          <line x1="50" y1="50" x2="58" y2="42" stroke="#004C3F" stroke-width="1.2" stroke-linecap="round" opacity=".5" />
+        </svg>
+        <div>
+          <h1>National Trust</h1>
+          <div class="sub" id="header-sub">Visit Planner</div>
+        </div>
+      </header>
+      <div class="gold-bar"></div>
+      <div class="summary" id="summary"></div>
+      <div id="route-banner"></div>
+
+      <div class="toolbar">
+        <div class="sort-group">
+          <button type="button" class="sort-btn active" data-sort="default">📍 Near</button>
+          <button type="button" class="sort-btn" data-sort="alpha">A–Z</button>
+          <button type="button" class="sort-btn" data-sort="popular">⭐ Pop</button>
+        </div>
+        <button type="button" class="surprise-btn" id="surpriseBtn">🍂 Surprise me</button>
+      </div>
+
+      <div class="cards" id="cards"></div>
+      <footer>
+        Distances are straight-line. Descriptions from Wikipedia. Check
+        nationaltrust.org.uk for opening times.
+      </footer>
+    </div>
+
+    <script>
+      /*
+       * ── Webview data contract ────────────────────────────────────────────────────
+       *
+       * This page receives data via the ?data= URL query parameter, which
+       * contains a URL-encoded JSON object produced by scripts/index.html.
+       *
+       * {
+       *   mode:        "radius" | "route"
+       *   radiusMiles: number
+       *   exclusions:  string[]
+       *   properties:  Array<{
+       *     title:          string
+       *     region:         string
+       *     lat:            number
+       *     lon:            number
+       *     distance:       number          // miles from centre or route
+       *     routeProgress?: number          // 0–1, route mode only
+       *     extract?:       string          // Wikipedia summary (truncated)
+       *     thumbnail?:     string | null   // Wikipedia thumbnail URL
+       *     wikiUrl?:       string | null
+       *     ntUrl?:         string | null   // nationaltrust.org.uk page
+       *   }>
+       *
+       *   // Radius mode only:
+       *   centreLabel:  string              // geocoded display name
+       *
+       *   // Route mode only:
+       *   waypoints:    string[]            // geocoded waypoint labels
+       *   routeMeta:    { distanceMiles: number, durationMins: number } | null
+       * }
+       */
+
+      const OAK = `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M50 88 C50 88 48 82 44 76 C40 70 34 66 30 60 C26 54 22 48 20 42
+           C18 36 18 30 22 25 C26 20 32 18 36 20 C38 21 40 23 42 22
+           C43 18 45 14 50 12 C55 14 57 18 58 22 C60 23 62 21 64 20
+           C68 18 74 20 78 25 C82 30 82 36 80 42 C78 48 74 54 70 60
+           C66 66 60 70 56 76 C52 82 50 88 50 88Z" fill="white"/>
+  <line x1="50" y1="86" x2="50" y2="38" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  <line x1="50" y1="68" x2="40" y2="56" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="50" y1="56" x2="60" y2="46" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="50" y1="62" x2="42" y2="50" stroke="white" stroke-width="1.2" stroke-linecap="round" opacity=".5"/>
+  <line x1="50" y1="50" x2="58" y2="42" stroke="white" stroke-width="1.2" stroke-linecap="round" opacity=".5"/>
+</svg>`;
+
+      // ── Data ──────────────────────────────────────────────────────────────────────
+
+      let allProperties = [];
+      let currentSort = "default";
+      let surprisedTitle = null;
+
+      function progressLabel(p) {
+        if (p < 0.12) return "near start";
+        if (p < 0.38) return "¼ of route";
+        if (p < 0.62) return "halfway";
+        if (p < 0.88) return "¾ of route";
+        return "near end";
+      }
+
+      function popularScore(p) {
+        return (p.thumbnail ? 50000 : 0) + (p.extract?.length ?? 0);
+      }
+
+      function sortedProps() {
+        const arr = [...allProperties];
+        if (currentSort === "alpha")
+          arr.sort((a, b) => a.title.localeCompare(b.title));
+        if (currentSort === "popular")
+          arr.sort((a, b) => popularScore(b) - popularScore(a));
+        // 'default' = original index.html order (nearest-to-centre or nearest-to-route)
+        return arr;
+      }
+
+      // ── Helpers ───────────────────────────────────────────────────────────────────
+
+      function showEmpty(msg) {
+        document.getElementById("cards").innerHTML =
+          `<div class="empty"><div class="icon">🍂</div>${msg}</div>`;
+      }
+
+      // ── Card rendering ────────────────────────────────────────────────────────────
+
+      function renderCards() {
+        const container = document.getElementById("cards");
+        container.innerHTML = "";
+        const isRouteMode = window._payload?.mode === "route";
+
+        sortedProps().forEach((p) => {
+          const card = document.createElement("div");
+          card.className =
+            `card${p.title === surprisedTitle ? " surprised" : ""}`;
+          card.dataset.title = p.title;
+
+          const imgSection = p.thumbnail
+            ? `<img class="card-img" src="${p.thumbnail}" alt="${p.title}" loading="lazy">`
+            : `<div class="card-img-placeholder">${OAK}</div>`;
+
+          const distLabel = isRouteMode
+            ? `${p.distance} mi from route`
+            : `${p.distance} mi`;
+          const progressBadge =
+            isRouteMode && p.routeProgress != null
+              ? `<div class="badge progress">${progressLabel(p.routeProgress)}</div>`
+              : "";
+
+          const extractSection = p.extract
+            ? `<div class="card-extract">${p.extract}</div>`
+            : "";
+          const wikiLink = p.wikiUrl
+            ? `<a class="card-link wiki-link" href="${p.wikiUrl}" target="_blank">Wikipedia</a>`
+            : "";
+          const ntLink = p.ntUrl
+            ? `<a class="card-link" href="${p.ntUrl}" target="_blank">nationaltrust.org.uk →</a>`
+            : "";
+
+          card.innerHTML = `
+          ${imgSection}
+          <div class="card-body">
+            <div class="card-top">
+              <div class="card-title">${p.title}</div>
+              <div class="badges">
+                <div class="badge">${distLabel}</div>
+                ${progressBadge}
+              </div>
+            </div>
+            ${extractSection}
+            <div class="card-footer">
+              <div class="region-tag">${p.region || ""}</div>
+              <div class="links">${wikiLink}${ntLink}</div>
+            </div>
+          </div>`;
+          container.appendChild(card);
+        });
+      }
+
+      // ── Surprise me ───────────────────────────────────────────────────────────────
+
+      document.getElementById("surpriseBtn").addEventListener("click", () => {
+        if (!allProperties.length) return;
+        const pick =
+          allProperties[Math.floor(Math.random() * allProperties.length)];
+        surprisedTitle = pick.title;
+        renderCards();
+        const card = document.querySelector(
+          `.card[data-title="${CSS.escape(pick.title)}"]`,
+        );
+        if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+
+      // ── Sort buttons ──────────────────────────────────────────────────────────────
+
+      document.querySelectorAll(".sort-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document
+            .querySelectorAll(".sort-btn")
+            .forEach((b) => { b.classList.remove("active"); });
+          btn.classList.add("active");
+          currentSort = btn.dataset.sort;
+          renderCards();
+        });
+      });
+
+      // ── Init ──────────────────────────────────────────────────────────────────────
+
+      (() => {
+        const raw = new URLSearchParams(window.location.search).get("data");
+        if (!raw) {
+          showEmpty("No data received.");
+          return;
+        }
+        let payload;
+        try {
+          payload = JSON.parse(decodeURIComponent(raw));
+        } catch {
+          showEmpty("Could not load data.");
+          return;
+        }
+        window._payload = payload;
+        const {
+          mode,
+          centreLabel,
+          waypoints,
+          radiusMiles,
+          routeMeta,
+          properties,
+        } = payload;
+
+        allProperties = properties || [];
+
+        // Header sub-text
+        if (mode === "route" && waypoints?.length) {
+          document.getElementById("header-sub").textContent =
+            waypoints.length <= 3
+              ? waypoints.join(" → ")
+              : `${waypoints[0]} → … → ${waypoints[waypoints.length - 1]}`;
+        } else {
+          document.getElementById("header-sub").textContent =
+            centreLabel || "Visit Planner";
+        }
+
+        // Summary line
+        document.getElementById("summary").textContent =
+          `${allProperties.length} ${allProperties.length === 1 ? "property" : "properties"} within ${radiusMiles} miles` +
+          (mode === "route" ? " of route" : "");
+
+        // Route info banner
+        if (mode === "route" && routeMeta) {
+          const banner = document.getElementById("route-banner");
+          const hrs = Math.floor(routeMeta.durationMins / 60);
+          const mins = routeMeta.durationMins % 60;
+          const timeStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins} min`;
+          banner.innerHTML = `<div class="route-banner">
+          <div class="waypoints">${(waypoints || []).join(" → ")}</div>
+          <div class="meta">~${routeMeta.distanceMiles} mi · ${timeStr}</div>
+        </div>`;
+        }
+
+        if (!allProperties.length) {
+          showEmpty("No properties found.");
+          return;
+        }
+
+        renderCards();
+      })();
+    </script>
+  </body>
+</html>
