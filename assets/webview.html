@@ -408,34 +408,43 @@
       /*
        * ── Webview data contract ────────────────────────────────────────────────────
        *
-       * This page receives data via the ?data= URL query parameter, which
-       * contains a URL-encoded JSON object produced by scripts/index.html.
+       * This page receives minified data via the URL hash fragment (#),
+       * which keeps the payload out of server-side URL length limits on
+       * GitHub Pages. The minified JSON is produced by scripts/index.html.
        *
-       * {
-       *   mode:        "radius" | "route"
-       *   radiusMiles: number
-       *   exclusions:  string[]
-       *   properties:  Array<{
-       *     title:          string
-       *     region:         string
-       *     lat:            number
-       *     lon:            number
-       *     distance:       number          // miles from centre or route
-       *     routeProgress?: number          // 0–1, route mode only
-       *     extract?:       string          // Wikipedia summary (truncated)
-       *     thumbnail?:     string | null   // Wikipedia thumbnail URL
-       *     wikiUrl?:       string | null
-       *     ntUrl?:         string | null   // nationaltrust.org.uk page
-       *   }>
-       *
-       *   // Radius mode only:
-       *   centreLabel:  string              // geocoded display name
-       *
-       *   // Route mode only:
-       *   waypoints:    string[]            // geocoded waypoint labels
-       *   routeMeta:    { distanceMiles: number, durationMins: number } | null
-       * }
+       * Minified keys → full names (expanded by expandPayload below):
+       *   m→mode, r→radiusMiles, p→properties, cl→centreLabel,
+       *   wp→waypoints, rm→routeMeta
+       * Per property: t→title, g→region, d→distance, rp→routeProgress,
+       *   e→extract, i→thumbnail, w→wikiUrl, n→ntUrl
+       * routeMeta: d→distanceMiles, t→durationMins
        */
+
+      /** Expand minified payload keys back to readable names. */
+      function expandPayload(mini) {
+        const payload = {
+          mode: mini.m,
+          radiusMiles: mini.r,
+          properties: (mini.p || []).map((o) => {
+            const prop = { title: o.t, region: o.g, distance: o.d };
+            if (o.rp != null) prop.routeProgress = o.rp;
+            if (o.e) prop.extract = o.e;
+            if (o.i) prop.thumbnail = o.i;
+            if (o.w) prop.wikiUrl = o.w;
+            if (o.n) prop.ntUrl = o.n;
+            return prop;
+          }),
+        };
+        if (mini.cl) payload.centreLabel = mini.cl;
+        if (mini.wp) payload.waypoints = mini.wp;
+        if (mini.rm) {
+          payload.routeMeta = {
+            distanceMiles: mini.rm.d,
+            durationMins: mini.rm.t,
+          };
+        }
+        return payload;
+      }
 
       const OAK = `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path d="M50 88 C50 88 48 82 44 76 C40 70 34 66 30 60 C26 54 22 48 20 42
@@ -570,14 +579,14 @@
       // ── Init ──────────────────────────────────────────────────────────────────────
 
       (() => {
-        const raw = new URLSearchParams(window.location.search).get("data");
+        const raw = window.location.hash.slice(1); // strip leading '#'
         if (!raw) {
           showEmpty("No data received.");
           return;
         }
         let payload;
         try {
-          payload = JSON.parse(decodeURIComponent(raw));
+          payload = expandPayload(JSON.parse(decodeURIComponent(raw)));
         } catch {
           showEmpty("Could not load data.");
           return;
