@@ -425,9 +425,10 @@
         const exNote = normExclusions.length
           ? ` (${exclusions.length} visited excluded)`
           : "";
+        const names = properties.map((p) => p.title).join(", ");
 
         return buildResponse(
-          `Found ${properties.length} NT ${properties.length === 1 ? "property" : "properties"} within ${radiusMiles} miles of ${location}${exNote}.`,
+          `Found ${properties.length} NT ${properties.length === 1 ? "property" : "properties"} within ${radiusMiles} miles of ${location}${exNote}: ${names}.`,
           {
             mode: "radius",
             centreLabel: centre.label,
@@ -540,9 +541,10 @@
         const routeSummary = routeMeta
           ? ` Route is ~${routeMeta.distanceMiles} miles (${routeMeta.durationMins} mins driving).`
           : "";
+        const names = properties.map((p) => p.title).join(", ");
 
         return buildResponse(
-          `Found ${properties.length} NT ${properties.length === 1 ? "property" : "properties"} within ${radiusMiles} miles of your route${exNote}.${routeSummary}`,
+          `Found ${properties.length} NT ${properties.length === 1 ? "property" : "properties"} within ${radiusMiles} miles of your route${exNote}: ${names}.${routeSummary}`,
           {
             mode: "route",
             waypoints: waypointLabels,
